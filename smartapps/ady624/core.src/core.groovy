@@ -7583,6 +7583,57 @@ private task_vcmd_iftttMaker(devices, action, task, suffix = "") {
 	return true
 }
 
+
+private task_vcmd_postToSlack(devices, action, task, suffix = "") {
+	def params = (task && task.data && task.data.p && task.data.p.size()) ? task.data.p : []
+	if (params.size() != 5) return false
+	def uri = params[0].d
+	def payload = params[1].d
+	def variables = params[2].d
+	def importData = !!params[3].d
+	def importPrefix = params[4].d ?: ""
+	if (!uri) return false
+	def protocol = "https"
+	def uriParts = uri.split("://").toList()
+	if (uriParts.size() > 2) {
+		debug "Invalid URI for web request: $uri", null, "warn"
+		return false
+	}
+	if (uriParts.size() == 2) {
+		//Force Protocol to HTTPS
+		uri = uriParts[1]
+	}
+	def data = "{\"text\":\"${payload}\"}"
+	for(variable in variables) {
+		data = data.replaceAll("$${variable}", getVariable(variable))
+	}
+	try {
+		debug "Sending external web request to: $uri", null, "info"
+		def requestParams = [
+				uri:  "${protocol}://${uri}",
+				requestContentType: "application/json",
+				query: null,
+				body: data 
+			]
+		"httpPost"(requestParams) { response ->
+			setVariable("\$httpStatusCode", response.status, true)
+			setVariable("\$httpStatusOk", response.status == 200, true)
+			if (importData && (response.status == 200) && response.data) {
+				try {
+					def jsonData = response.data instanceof Map ? response.data : new groovy.json.JsonSlurper().parseText(response.data)
+					importVariables(jsonData, importPrefix)
+				} catch (all) {
+					debug "Error parsing JSON response for web request: $all", null, "error"
+				}
+			}
+		}
+	} catch (all) {
+		debug "Error executing external web request: $all", null, "error"
+	}
+
+	return true
+}
+
 private task_vcmd_httpRequest(devices, action, task, suffix = "") {
 	def params = (task && task.data && task.data.p && task.data.p.size()) ? task.data.p : []
 	if (params.size() != 6) return false
@@ -10695,6 +10746,7 @@ private virtualCommands() {
 		[ name: "pausePiston",			display: "Pause piston",					parameters: ["Piston:piston"],																location: true,	description: "Pause piston '{0}'",	aggregated: true],
 		[ name: "resumePiston",			display: "Resume piston",					parameters: ["Piston:piston"],																location: true,	description: "Resume piston '{0}'",	aggregated: true],
 		[ name: "httpRequest",			display: "Make a web request", parameters: ["URL:string","Method:enum[GET,POST,PUT,DELETE,HEAD]","Content Type:enum[JSON,FORM]","?Variables to send:variables","Import response data into variables:bool","?Variable import name prefix (optional):string"], location: true, description: "Make a {1} web request to {0}", aggregated: true],
+		[ name: "postToSlack",			display: "Post to Slack", parameters: ["URL:string","Payload:string","?Variables to send:variables","Import response data into variables:bool","?Variable import name prefix (optional):string"], location: true, description: "Post to slack", aggregated: true],
 		[ name: "wolRequest",			display: "Wake a LAN device", parameters: ["MAC address:string","?Secure code:string"], location: true, description: "Wake LAN device at address {0} with secure code {1}", aggregated: true],
 		//flow control commands
 		[ name: "beginSimpleForLoop",	display: "Begin FOR loop (simple)",			parameters: ["Number of cycles:string"],																																										location: true,		description: "FOR {0} CYCLES DO",			flow: true,					indent: 1,	],
